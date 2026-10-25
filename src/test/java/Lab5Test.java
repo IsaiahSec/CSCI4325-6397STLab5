@@ -16,21 +16,22 @@ public class Lab5Test {
     private Archmage ArchBro;
     private Object FireBall;
     private Spell Lightning;
-    private Wand ElderWand;
+
     @BeforeEach
     public void beforeEach(){
-        WizBro = new Wizard(1, 1);
+        WizBro = new Wizard(10, 100);
         ArchBro = new Archmage(10, 100);
         WizGuy = new Wizard(1, 1);
         FireBall = new Spell("Fireball", 20, 1);
         Lightning = new Spell("Lightning", 20, 1);
-        ElderWand = new Wand(1, 1);
     }
 
     //Challenge 1: The Infinite Exhaustion Trap (State Transition Leak)
     @Test
     public void rest_whenExhausted_resetsStanceToIdle(){
+
         for(int i = 0; i < 4; i++){
+
             WizBro.beginChanneling();
             WizBro.spellSurge(1);
         }
@@ -52,32 +53,35 @@ public class Lab5Test {
     }
 
     //Challenge 3: Mana Store Boundary Invariant Under Drain
-    @ParameterizedTest
+    @ParameterizedTest(name = "surge {0}, then cast cost {1} -> throws={2}")
     @CsvSource
             ({
-                    "Fireball, 20, 1, 599",
-                    "Lightning, 20, 1, 599",
-                    "Fireball, 20, 1, 599",
-                    "Lightning, 20, 1, 599",
-                    "Fireball, 20, 1, 599",
-                    "Lightning, 20, 1, 599",
-                    "Fireball, 20, 1, 599",
-                    "Lightning, 20, 1, 599"
+                    "300, 20, false",
+                    "580, 20, false",
+                    "599, 1, false",
+                    "581, 20, true",
+                    "599, 2, true",
+                    "600, 1, true",
             })
-    public void class_invariant_preservation(String name, int baseManaCost, int minLevelRequired, int manaInvested){
-        Spell spell = new Spell(name, baseManaCost, minLevelRequired);
+    public void class_invariant_preservation(int surge, int baseManaCost, boolean shouldThrow){
 
+        Spell spell = new Spell("Fireball", baseManaCost, 1);
         WizBro.beginChanneling();
-        WizBro.spellSurge(manaInvested);
+        WizBro.spellSurge(surge);
+        int beforeMana = WizBro.getManaStore();
 
-        try {
-            WizBro.castSpell(spell);
-            fail("Mana Boundary Not Invariant Under Drain");
+        if (shouldThrow){
+
+            assertThatThrownBy(() -> WizBro.castSpell(spell)).isInstanceOf(ManaInvestedException.class);
+            assertThat(WizBro.getManaStore()).isEqualTo(beforeMana);
         }
-        catch (WizardException expected){}
+        else{
 
+            WizBro.castSpell(spell);
+        }
+
+        assertThat(WizBro.getManaStore()).isBetween(0, 600);
     }
-
 
     //Challenge 4: Liskov Substitution Principle (LSP) Invariant Violation in Archmage
     @Test
@@ -85,15 +89,16 @@ public class Lab5Test {
 
         ArchBro.toggleBarrier();
 
-        ArchBro.receiveDamage(1000);
+        Spellcaster caster = ArchBro;
+        caster.receiveDamage(1000);
 
-        assertTrue(ArchBro.getManaStore() >= 0);
-
+        assertTrue(caster.getManaStore() >= 0);
     }
 
     //Challenge 5: The "Yo-Yo Effect" Cascade
     @Test
     public void spellSurge_overPower(){
+
         ArchBro.beginChanneling();
         int power = ArchBro.spellSurge(120);
 
@@ -104,32 +109,44 @@ public class Lab5Test {
         );
 
         for(int i = 0; i < 3; i++){
+
             ArchBro.beginChanneling();
             ArchBro.spellSurge(1);
         }
 
         assertEquals(Wizard.Stance.EXHAUSTED, ArchBro.getCurrentStance());
-
     }
 
     //Challenge 6: Dynamic Binding & Polymorphic Subclass Substitution
     @Test
     public void behavior_difference_between_wizard_and_archmage(){
-        WizBro.setWand(ElderWand);
-        WizBro.getCurrentStance();
-        WizBro.beginChanneling();
-        WizBro.rest();
-        WizBro.spellSurge(1);
-        WizBro.getPowerMultiplier();
-        WizBro.transferMana(ArchBro, 1, 1);
-        WizBro.castSpell(FireBall);
-        WizBro.castSpell(Lightning);
 
+        WizBro.beginChanneling();
+        ArchBro.beginChanneling();
+        int wizPower = WizBro.spellSurge(120);
+        int archPower = ArchBro.spellSurge(120);
+        int wizManaAfterSurge = WizBro.getManaStore();
+        int archManaAfterSurge = ArchBro.getManaStore();
+
+        for (int i = 0; i < 3; i++){
+
+            WizBro.beginChanneling();
+            ArchBro.beginChanneling();
+            WizBro.spellSurge(1);
+            ArchBro.spellSurge(1);
+        }
+
+        assertAll(" Any client code operating on a Wizard reference must function identically when passed an Archmage reference.",
+                () -> assertEquals(wizPower * 2, archPower),
+                () -> assertEquals(wizManaAfterSurge, archManaAfterSurge),
+                () -> assertEquals(WizBro.getManaStore(), ArchBro.getManaStore()),
+                () -> assertEquals(WizBro.getCurrentStance(), ArchBro.getCurrentStance()));
     }
 
     //Challenge: 7 Homogeneous Type Parameter Swap in Inter-Object Messaging
     @Test
     public void transferMana_deductsExactAmountFromSender(){
+
         WizGuy.beginChanneling();
         WizGuy.spellSurge(100);
 
@@ -153,13 +170,11 @@ public class Lab5Test {
             assertEquals(40, lightning_damage);
 
             int fire_damage = WizBro.castSpell(FireBall);
-            assertEquals(580, WizBro.getManaStore());
+            assertEquals(560, WizBro.getManaStore());
             assertEquals(40, fire_damage);
         }
         catch (ClassCastException | WizardException err) {
             fail("Casting or running the spell failed: " + err.getMessage());
         }
-
     }
-
 }
